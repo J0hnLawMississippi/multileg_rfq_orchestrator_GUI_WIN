@@ -474,7 +474,13 @@ async def evaluate_structure(
 
     Falls back to OptimisedDeribitFetcher REST if WS not ready.
     """
-    parsed_legs = parse_legs(leg_specs)
+    try:
+        parsed_legs = parse_legs(leg_specs)
+    except ValueError as exc:
+        raise ValueError(
+            "Leg validation failed. Please fix the leg format and values "
+            f"(size > 0, strike > 0, valid DDMMMYY maturity): {exc}"
+        ) from exc
     maturities = list({lg.maturity for lg in parsed_legs})
 
     if mds.is_ready:
@@ -889,7 +895,11 @@ async def main() -> None:
 
     async with CachedDeribitApiHandler(cache_ttl_sec=3600) as deribit_handler:
         # Step 1: enumerate smile instruments
-        parsed_legs = parse_legs(leg_specs)
+        try:
+            parsed_legs = parse_legs(leg_specs)
+        except ValueError as exc:
+            LOG.error("Leg validation failed at startup: %s", exc)
+            sys.exit(1)
         LOG.info("Enumerating smile instruments (+/-%d strikes)...", SMILE_HALF_WIDTH)
         instruments, strike_windows = await enumerate_smile_instruments(
             legs=parsed_legs,
