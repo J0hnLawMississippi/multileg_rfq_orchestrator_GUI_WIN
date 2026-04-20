@@ -18,6 +18,7 @@ import asyncio
 import math
 import re
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum
@@ -83,10 +84,25 @@ class StructurePriceResult:
     leg_prices_usd: NDArray[np.float64]
     leg_ivs: NDArray[np.float64]
     leg_forwards: NDArray[np.float64]
+    leg_times_to_expiry_years: NDArray[np.float64]
     total_btc: float
     total_usd: float
-    time_to_expiry_years: float
     vol_shift: float = 0.0
+
+    @property
+    def time_to_expiry_years(self) -> float:
+        """
+        Deprecated scalar compatibility accessor.
+
+        Use ``leg_times_to_expiry_years`` for per-leg maturities.
+        """
+        warnings.warn(
+            "StructurePriceResult.time_to_expiry_years is deprecated; "
+            "use leg_times_to_expiry_years instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return float(self.leg_times_to_expiry_years[0])
 
 
 @dataclass
@@ -585,9 +601,9 @@ class StructurePricer:
             leg_prices_usd=signed_usd,
             leg_ivs=sigmas_shocked,
             leg_forwards=F,
+            leg_times_to_expiry_years=T.copy(),
             total_btc=float(np.sum(signed_btc)),
             total_usd=float(np.sum(signed_usd)),
-            time_to_expiry_years=float(T[0]),
             vol_shift=vol_shift,
         )
 
