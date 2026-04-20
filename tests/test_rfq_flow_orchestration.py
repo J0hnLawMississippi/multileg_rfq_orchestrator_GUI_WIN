@@ -59,7 +59,13 @@ async def test_execute_rfq_flow_happy_path():
     ws = FakeWS()
     rest = FakeREST()
     mds = FakeMDS()
-    cfg = RFQConfig(threshold_type=ThresholdType.CREDIT, threshold_value=50, rfq_timeout_seconds=0.5, price_deviation_threshold=0.5)
+    cfg = RFQConfig(
+        threshold_type=ThresholdType.CREDIT,
+        threshold_value=50,
+        rfq_timeout_seconds=0.5,
+        price_deviation_threshold=0.5,
+        max_slippage_percent=20.0,
+    )
 
     await ws.q.put(
         QuoteReceived(

@@ -26,6 +26,7 @@ from __future__ import annotations
 # logging.basicConfig() fires before rfq_orchestrator's module-level
 # basicConfig call (making that second call a no-op).
 # ---------------------------------------------------------------------------
+import argparse
 import asyncio
 import json
 import logging
@@ -158,6 +159,10 @@ COINCALL_REST_BASE = "https://api.coincall.com"
 COINCALL_WS_URL = "wss://ws.coincall.com/options"
 PLOT_REFRESH_MS = 500  # max 2 Hz redraws
 MAX_LEGS = 6
+DEMO_SCREENSHOT_DEFAULT_LEGS = [
+    "L 1.0 29MAY26-80000-C",
+    "S 1.0 26JUN26-82000-C",
+]
 
 
 # =============================================================================
@@ -1825,6 +1830,31 @@ class MainWindow(QMainWindow):
 
         self._param_bar.params_changed.connect(self._on_params_changed)
 
+    def apply_demo_leg_specs(self, leg_specs: List[str]) -> None:
+        """
+        Populate the legs panel with exactly the provided specs.
+        Intended for deterministic screenshot mode.
+        """
+        rows = self._leg_panel.get_leg_rows()
+        while len(rows) < len(leg_specs):
+            self._leg_panel._add_leg()
+            rows = self._leg_panel.get_leg_rows()
+        while len(rows) > len(leg_specs):
+            self._leg_panel._remove_leg()
+            rows = self._leg_panel.get_leg_rows()
+
+        names: List[str] = []
+        for row, spec in zip(rows, leg_specs):
+            row.set_from_spec(spec)
+            m = re.match(
+                r"^[LS]\s+[\d.]+\s+((\d{1,2}[A-Z]{3}\d{2})-(\d+)-([CP]))$",
+                spec.strip(),
+                re.IGNORECASE,
+            )
+            names.append(f"BTC-{m.group(1).upper()}" if m else spec)
+
+        self._leg_panel._pricing.set_leg_names(names)
+
     @Slot(float, float)
     def _on_params_changed(
         self,
@@ -2572,12 +2602,126 @@ def _apply_dark_palette(app: QApplication) -> None:
 # =============================================================================
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Multileg RFQ Orchestrator GUI")
+    parser.add_argument(
+        "--demo-screenshot",
+        action="store_true",
+        help=(
+            "Run deterministic, offline-safe UI mode for CI screenshots "
+            "(no network dependencies)."
+        ),
+    )
+    return parser
+
+
+def parse_cli_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    return build_arg_parser().parse_args(argv)
+
+
+def _seed_loader_for_demo(loader: CoincallInstrumentLoader) -> None:
+    """Inject deterministic expiry/strike data for demo screenshot mode."""
+    loader.expiry_labels = ["29MAY26", "26JUN26"]
+    loader.strikes_by_expiry = {
+        "29MAY26": ["80000"],
+        "26JUN26": ["82000"],
+    }
+
+
+def _build_mock_price_result(
+    leg_specs: List[str],
+    spot: float,
+    total_usd: float,
+    vol_shift: float,
+) -> StructurePriceResult:
+    legs = parse_legs(leg_specs)
+    leg_prices_usd = np.array([2150.0, -1725.0], dtype=float)
+    leg_prices_btc = leg_prices_usd / spot
+    return StructurePriceResult(
+        legs=legs,
+        spot=spot,
+        shifted_spot=spot,
+        leg_prices_btc=leg_prices_btc,
+        leg_prices_usd=leg_prices_usd,
+        leg_ivs=np.array([0.58, 0.54], dtype=float),
+        leg_forwards=np.array([81200.0, 81950.0], dtype=float),
+        leg_times_to_expiry_years=np.array([0.11, 0.18], dtype=float),
+        total_btc=float(total_usd / spot),
+        total_usd=total_usd,
+        vol_shift=vol_shift,
+    )
+
+
+def apply_demo_screenshot_state(window: MainWindow) -> None:
+    """
+    Populate GUI with deterministic content and keep it static for screenshot
+    capture in CI. No network/API calls are required.
+    """
+    window.apply_demo_leg_specs(DEMO_SCREENSHOT_DEFAULT_LEGS)
+    window._vol_bar.update_data(
+        dvol=61.2,
+        dvol_high=64.0,
+        dvol_low=58.4,
+        index_price=81234.0,
+    )
+    window._param_bar._time_spin.setValue(7.0)
+    window._param_bar._vol_spin.setValue(-0.10)
+    window._param_bar._time_slider.setValue(70)
+    window._param_bar._vol_slider.setValue(-100)
+    window._status_bar.showMessage("Demo screenshot mode — deterministic mock data")
+
+    cur = _build_mock_price_result(
+        leg_specs=DEMO_SCREENSHOT_DEFAULT_LEGS,
+        spot=81234.0,
+        total_usd=425.0,
+        vol_shift=0.0,
+    )
+    tgt_flat = _build_mock_price_result(
+        leg_specs=DEMO_SCREENSHOT_DEFAULT_LEGS,
+        spot=81500.0,
+        total_usd=540.0,
+        vol_shift=0.0,
+    )
+    tgt_shock = _build_mock_price_result(
+        leg_specs=DEMO_SCREENSHOT_DEFAULT_LEGS,
+        spot=81500.0,
+        total_usd=465.0,
+        vol_shift=-0.10,
+    )
+    window._leg_panel.update_pricing(
+        cur_result=cur,
+        tgt_flat_result=tgt_flat,
+        tgt_shock_result=tgt_shock,
+        dd_flat_usd=-1200.0,
+        dd_shock_usd=-1425.0,
+        vol_shift=-0.10,
+    )
+
+    spot_grid = np.linspace(70000.0, 92000.0, 300)
+    base = (spot_grid - 81500.0) / 1000.0
+    struct_pnl = 520.0 - 18.0 * np.square(base) + 42.0 * np.sin(base / 1.8)
+    struct_shocked = struct_pnl - 95.0
+    window.on_plot_update(
+        spot_grid=spot_grid,
+        struct_pnl=struct_pnl,
+        struct_shocked=struct_shocked,
+        current_spot=81234.0,
+        target_spot=81500.0,
+    )
+
+    def _ready_log() -> None:
+        print("DEMO_SCREENSHOT_READY", flush=True)
+
+    QTimer.singleShot(1200, _ready_log)
+
+
 def main() -> None:
     # Windows requires SelectorEventLoop; ProactorEventLoop (the default on
     # Windows ≥ 3.8) is incompatible with aiohttp WebSockets and qasync.
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+    args = parse_cli_args()
     load_dotenv()
 
     app = QApplication(sys.argv)
@@ -2587,13 +2731,20 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     loader = CoincallInstrumentLoader()
+    if args.demo_screenshot:
+        _seed_loader_for_demo(loader)
     window = MainWindow(loader)
-    orch = GUIOrchestrator(window)
+    orch: Optional[GUIOrchestrator] = None
+    if not args.demo_screenshot:
+        orch = GUIOrchestrator(window)
 
     window.show()
 
     async def _startup_and_run() -> None:
-        await orch.startup()
+        if args.demo_screenshot:
+            apply_demo_screenshot_state(window)
+        elif orch is not None:
+            await orch.startup()
         # Keep running until the window is closed
         close_event = asyncio.Event()
 
@@ -2602,7 +2753,8 @@ def main() -> None:
 
         app.aboutToQuit.connect(_on_close)
         await close_event.wait()
-        await orch.shutdown()
+        if orch is not None:
+            await orch.shutdown()
 
     with loop:
         loop.run_until_complete(_startup_and_run())

@@ -26,9 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           if (Test-Path requirements.txt) {
             pip install -r requirements.txt
+            pip install pytest-asyncio
           } else {
             # fallback: install likely deps used by this repo
-            pip install pytest pyside6 qasync matplotlib numpy scipy aiohttp python-dotenv aiolimiter
+            pip install pytest pytest-asyncio pyside6 qasync matplotlib numpy scipy aiohttp python-dotenv aiolimiter
           }
 
       - name: Run unit tests
@@ -41,14 +42,40 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           $env:PYTHONUNBUFFERED = "1"
+          $stdoutLogPath = Join-Path $PWD "artifacts/demo-screenshot.stdout.log"
+          $stderrLogPath = Join-Path $PWD "artifacts/demo-screenshot.stderr.log"
+          $combinedLogPath = Join-Path $PWD "artifacts/demo-screenshot.log"
 
-          # Start GUI app
+          # Start GUI app in deterministic offline screenshot mode
           $proc = Start-Process python `
-            -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py" `
+            -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py --demo-screenshot" `
+            -RedirectStandardOutput $stdoutLogPath `
+            -RedirectStandardError $stderrLogPath `
             -PassThru
 
-          # Wait for window creation
-          Start-Sleep -Seconds 12
+          # Wait until app reports readiness (or timeout fallback)
+          $ready = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 500
+            $stdoutContent = ""
+            $stderrContent = ""
+            if (Test-Path $stdoutLogPath) {
+              $stdoutContent = Get-Content $stdoutLogPath -Raw
+            }
+            if (Test-Path $stderrLogPath) {
+              $stderrContent = Get-Content $stderrLogPath -Raw
+            }
+            if (("$stdoutContent`n$stderrContent") -match "DEMO_SCREENSHOT_READY") {
+              $ready = $true
+              break
+            }
+          }
+          if (-not $ready) {
+            Write-Warning "DEMO_SCREENSHOT_READY not seen; using fallback delay"
+            Start-Sleep -Seconds 8
+          } else {
+            Start-Sleep -Seconds 2
+          }
 
           # Capture full desktop screenshot (taskbar clock + window chrome visible)
           Add-Type -AssemblyName System.Windows.Forms
@@ -60,12 +87,22 @@ jobs:
           $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
           $out = Join-Path $PWD "artifacts/gui-windows-screenshot.png"
           $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Host "Saved screenshot artifact: $out"
           $g.Dispose()
           $bmp.Dispose()
 
           # Stop app
           if (!$proc.HasExited) {
             Stop-Process -Id $proc.Id -Force
+          }
+
+          # Persist a combined log artifact for troubleshooting
+          if (Test-Path $stdoutLogPath) {
+            Get-Content $stdoutLogPath | Set-Content $combinedLogPath
+          }
+          if (Test-Path $stderrLogPath) {
+            Add-Content $combinedLogPath "`n--- STDERR ---"
+            Get-Content $stderrLogPath | Add-Content $combinedLogPath
           }
 
       - name: Upload screenshot artifact
