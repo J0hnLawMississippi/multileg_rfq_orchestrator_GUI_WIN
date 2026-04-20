@@ -15,6 +15,7 @@ additive shift to all IVs (matching PB's vol slider behavior).
 """
 
 import asyncio
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -112,23 +113,49 @@ class DrawdownResult:
 
 _LEG_PATTERN = re.compile(
     r"^([LS])\s+"
-    r"([\d.]+)\s+"
-    r"(\d{1,2}[A-Z]{3}\d{2})-(\d+)-([CP])$",
+    r"((?:0|[1-9]\d*)(?:\.\d+)?)\s+"
+    r"(\d{1,2}[A-Z]{3}\d{2})-((?:0|[1-9]\d*))-([CP])$",
     re.IGNORECASE,
 )
 
 
 def parse_leg(spec: str) -> OptionLeg:
-    m = _LEG_PATTERN.match(spec.strip())
+    spec_trimmed = spec.strip()
+    m = _LEG_PATTERN.match(spec_trimmed)
     if not m:
         raise ValueError(
             f"Invalid leg spec: '{spec}'. "
-            f"Expected format: L|S <size> <DDMMMYY>-<strike>-<C|P>"
+            "Expected canonical format: "
+            "L|S <size> <DDMMMYY>-<strike>-<C|P> "
+            "(e.g. 'L 0.5 20MAR26-70000-C'). "
+            "Use plain decimals only (no signs, exponent notation, or extra dots)."
         )
     direction = Direction(m.group(1).upper())
-    size = float(m.group(2))
+    size_text = m.group(2)
+    size = float(size_text)
+    if not math.isfinite(size) or size <= 0.0:
+        raise ValueError(
+            f"Invalid leg size '{size_text}' in '{spec_trimmed}': "
+            "size must be a finite number greater than 0."
+        )
+
     maturity = m.group(3).upper()
-    strike = float(m.group(4))
+    strike_text = m.group(4)
+    strike = float(strike_text)
+    if not math.isfinite(strike) or strike <= 0.0:
+        raise ValueError(
+            f"Invalid strike '{strike_text}' in '{spec_trimmed}': "
+            "strike must be a finite number greater than 0."
+        )
+
+    try:
+        maturity_to_datetime(maturity)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid maturity '{maturity}' in '{spec_trimmed}': {exc}. "
+            "Expected a real calendar date in DDMMMYY format (e.g. 20MAR26)."
+        ) from exc
+
     opt_type = OptionType(m.group(5).upper())
     instrument_name = f"BTC-{maturity}-{int(strike)}-{opt_type.value}"
     return OptionLeg(direction, size, maturity, strike, opt_type, instrument_name)

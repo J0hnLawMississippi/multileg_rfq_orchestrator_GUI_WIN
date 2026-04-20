@@ -2010,7 +2010,10 @@ class GUIOrchestrator(QObject):
         try:
             parsed_legs = parse_legs(leg_specs)
         except ValueError as exc:
-            self._win.sig_status.emit(f"Leg parse error: {exc}")
+            self._win.sig_status.emit(
+                "Leg validation error. Fix leg format/values "
+                f"(size > 0, strike > 0, valid DDMMMYY maturity): {exc}"
+            )
             return
 
         # Start Deribit handler + MDS
@@ -2225,6 +2228,14 @@ class GUIOrchestrator(QObject):
                 self._mds,
                 self._deribit_handler,
             )
+        except ValueError as exc:
+            msg = (
+                "Evaluation blocked by leg validation error. "
+                f"Please correct the legs and re-evaluate: {exc}"
+            )
+            self._win.sig_rfq_flow.emit(msg)
+            self._win.sig_status.emit(msg)
+            return
         except Exception as exc:
             self._win.sig_rfq_flow.emit(f"Evaluation failed: {exc}")
             self._win.sig_status.emit(f"Evaluation failed: {exc}")
