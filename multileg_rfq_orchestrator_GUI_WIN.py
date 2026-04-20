@@ -2711,13 +2711,6 @@ def apply_demo_screenshot_state(window: MainWindow) -> None:
 
     def _ready_log() -> None:
         print("DEMO_SCREENSHOT_READY", flush=True)
-        ready_file = os.environ.get("DEMO_SCREENSHOT_READY_FILE", "").strip()
-        if ready_file:
-            try:
-                with open(ready_file, "w", encoding="utf-8") as fh:
-                    fh.write("DEMO_SCREENSHOT_READY\n")
-            except Exception as exc:
-                LOG.warning("Failed to write demo ready file %s: %s", ready_file, exc)
 
     QTimer.singleShot(1200, _ready_log)
 

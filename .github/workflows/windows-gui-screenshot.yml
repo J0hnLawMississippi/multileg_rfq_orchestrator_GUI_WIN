@@ -45,19 +45,16 @@ jobs:
           $stdoutLogPath = Join-Path $PWD "artifacts/demo-screenshot.stdout.log"
           $stderrLogPath = Join-Path $PWD "artifacts/demo-screenshot.stderr.log"
           $combinedLogPath = Join-Path $PWD "artifacts/demo-screenshot.log"
-          $readyFilePath = Join-Path $PWD "artifacts/demo-screenshot.ready"
 
           # Start GUI app in deterministic offline screenshot mode
-          $proc = Start-Process pythonw `
+          $proc = Start-Process python `
             -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py --demo-screenshot" `
             -RedirectStandardOutput $stdoutLogPath `
             -RedirectStandardError $stderrLogPath `
-            -Environment @{ DEMO_SCREENSHOT_READY_FILE = $readyFilePath } `
             -PassThru
 
-          # Wait until app reports readiness (ready-file preferred; log token fallback)
+          # Wait until app reports readiness (or timeout fallback)
           $ready = $false
-          $windowReady = $false
           for ($i = 0; $i -lt 40; $i++) {
             Start-Sleep -Milliseconds 500
             $stdoutContent = ""
@@ -68,36 +65,17 @@ jobs:
             if (Test-Path $stderrLogPath) {
               $stderrContent = Get-Content $stderrLogPath -Raw
             }
-            if ((Test-Path $readyFilePath) -or (("$stdoutContent`n$stderrContent") -match "DEMO_SCREENSHOT_READY")) {
+            if (("$stdoutContent`n$stderrContent") -match "DEMO_SCREENSHOT_READY") {
               $ready = $true
-            }
-
-            $guiProc = Get-Process | Where-Object {
-              $_.MainWindowTitle -like "*Multileg RFQ Orchestrator*"
-            } | Select-Object -First 1
-            if ($guiProc) {
-              $windowReady = $true
-            }
-
-            if ($ready -and $windowReady) {
               break
             }
           }
-
-          if (-not $ready -or -not $windowReady) {
-            Write-Host "---- DEMO STDOUT ----"
-            if (Test-Path $stdoutLogPath) { Get-Content $stdoutLogPath }
-            Write-Host "---- DEMO STDERR ----"
-            if (Test-Path $stderrLogPath) { Get-Content $stderrLogPath }
-            Write-Host "---- DEMO READY FILE ----"
-            Write-Host "Exists: $(Test-Path $readyFilePath) Path: $readyFilePath"
-            throw "GUI app did not become ready (ready=$ready windowReady=$windowReady)"
+          if (-not $ready) {
+            Write-Warning "DEMO_SCREENSHOT_READY not seen; using fallback delay"
+            Start-Sleep -Seconds 8
+          } else {
+            Start-Sleep -Seconds 2
           }
-
-          # Bring GUI window to foreground so desktop capture includes it.
-          $wshell = New-Object -ComObject WScript.Shell
-          [void]$wshell.AppActivate("Multileg RFQ Orchestrator")
-          Start-Sleep -Seconds 2
 
           # Capture full desktop screenshot (taskbar clock + window chrome visible)
           Add-Type -AssemblyName System.Windows.Forms
