@@ -1,0 +1,76 @@
+name: Windows Tests + GUI Screenshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  windows-tests-and-screenshot:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path requirements.txt) {
+            pip install -r requirements.txt
+          } else {
+            # fallback: install likely deps used by this repo
+            pip install pytest pyside6 qasync matplotlib numpy scipy aiohttp python-dotenv aiolimiter
+          }
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          pytest -q
+
+      - name: Run GUI and capture screenshot
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $env:PYTHONUNBUFFERED = "1"
+
+          # Start GUI app
+          $proc = Start-Process python `
+            -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py" `
+            -PassThru
+
+          # Wait for window creation
+          Start-Sleep -Seconds 12
+
+          # Capture full desktop screenshot (taskbar clock + window chrome visible)
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $out = Join-Path $PWD "artifacts/gui-windows-screenshot.png"
+          $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose()
+          $bmp.Dispose()
+
+          # Stop app
+          if (!$proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force
+          }
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-screenshot
+          path: artifacts/gui-windows-screenshot.png
+          if-no-files-found: error
