@@ -1,0 +1,7 @@
+{
+  "method": "subscription",
+  "params": {
+    "channel": "deribit_price_index.btc_usd",
+    "data": {"price": 70000.0, "timestamp": 1710000000000}
+  }
+}

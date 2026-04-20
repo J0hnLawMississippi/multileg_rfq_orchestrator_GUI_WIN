@@ -1,0 +1,17 @@
+{
+  "dt": 131,
+  "d": {
+    "requestId": "req-123",
+    "quoteId": "q-1",
+    "state": "OPEN",
+    "quoteSide": "BUY",
+    "legs": [
+      {
+        "instrumentName": "BTCUSD-20MAR26-70000-C",
+        "side": "BUY",
+        "quantity": "1",
+        "price": "150.0"
+      }
+    ]
+  }
+}
