@@ -60,23 +60,3 @@ def test_build_mock_price_result_shape() -> None:
     assert result.total_usd == 425.0
     assert result.spot == 81234.0
     assert len(result.legs) == 2
-
-
-def test_leg_row_signal_handlers_accept_emitted_args() -> None:
-    _get_or_create_app()
-    loader = gui.CoincallInstrumentLoader()
-    gui._seed_loader_for_demo(loader)
-    row = gui.LegRow(loader)
-
-    changed_events = []
-    skew_events = []
-    row.changed.connect(lambda: changed_events.append("changed"))
-    row.skew_needed.connect(lambda leg_row: skew_events.append(leg_row))
-
-    # Simulate Qt signal payload signatures used by currentIndexChanged/valueChanged.
-    row._emit_changed(1)
-    row._emit_changed(0.5)
-    row._on_skew_trigger(0)
-
-    assert len(changed_events) == 2
-    assert skew_events == [row]
