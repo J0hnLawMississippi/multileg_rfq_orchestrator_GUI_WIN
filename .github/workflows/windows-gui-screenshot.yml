@@ -42,25 +42,32 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           $env:PYTHONUNBUFFERED = "1"
-          $logPath = Join-Path $PWD "artifacts/demo-screenshot.log"
+          $stdoutLogPath = Join-Path $PWD "artifacts/demo-screenshot.stdout.log"
+          $stderrLogPath = Join-Path $PWD "artifacts/demo-screenshot.stderr.log"
+          $combinedLogPath = Join-Path $PWD "artifacts/demo-screenshot.log"
 
           # Start GUI app in deterministic offline screenshot mode
           $proc = Start-Process python `
             -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py --demo-screenshot" `
-            -RedirectStandardOutput $logPath `
-            -RedirectStandardError $logPath `
+            -RedirectStandardOutput $stdoutLogPath `
+            -RedirectStandardError $stderrLogPath `
             -PassThru
 
           # Wait until app reports readiness (or timeout fallback)
           $ready = $false
           for ($i = 0; $i -lt 40; $i++) {
             Start-Sleep -Milliseconds 500
-            if (Test-Path $logPath) {
-              $content = Get-Content $logPath -Raw
-              if ($content -match "DEMO_SCREENSHOT_READY") {
-                $ready = $true
-                break
-              }
+            $stdoutContent = ""
+            $stderrContent = ""
+            if (Test-Path $stdoutLogPath) {
+              $stdoutContent = Get-Content $stdoutLogPath -Raw
+            }
+            if (Test-Path $stderrLogPath) {
+              $stderrContent = Get-Content $stderrLogPath -Raw
+            }
+            if (("$stdoutContent`n$stderrContent") -match "DEMO_SCREENSHOT_READY") {
+              $ready = $true
+              break
             }
           }
           if (-not $ready) {
@@ -87,6 +94,15 @@ jobs:
           # Stop app
           if (!$proc.HasExited) {
             Stop-Process -Id $proc.Id -Force
+          }
+
+          # Persist a combined log artifact for troubleshooting
+          if (Test-Path $stdoutLogPath) {
+            Get-Content $stdoutLogPath | Set-Content $combinedLogPath
+          }
+          if (Test-Path $stderrLogPath) {
+            Add-Content $combinedLogPath "`n--- STDERR ---"
+            Get-Content $stderrLogPath | Add-Content $combinedLogPath
           }
 
       - name: Upload screenshot artifact
