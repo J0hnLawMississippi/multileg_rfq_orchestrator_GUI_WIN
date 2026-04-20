@@ -113,6 +113,7 @@ from db_option_pricer_win import (
     MaturityIVData,
     OptionLeg,
     OptionType,
+    StructurePriceResult,
     StructurePricer,
     StrikeIVInterpolator,
     VectorizedDrawdownCalculator,
