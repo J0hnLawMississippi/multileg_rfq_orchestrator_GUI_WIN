@@ -1,0 +1,14 @@
+{
+  "method": "subscription",
+  "params": {
+    "channel": "ticker.BTC-20MAR26-70000-C.100ms",
+    "data": {
+      "instrument_name": "BTC-20MAR26-70000-C",
+      "mark_price": 0.01,
+      "mark_iv": 65.0,
+      "underlying_price": 70100.0,
+      "index_price": 70000.0,
+      "timestamp": 1710000000001
+    }
+  }
+}

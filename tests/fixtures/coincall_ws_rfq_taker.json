@@ -1,0 +1,10 @@
+{
+  "dt": 129,
+  "d": {
+    "requestId": "req-123",
+    "state": "ACTIVE",
+    "legs": [
+      {"instrumentName": "BTCUSD-20MAR26-70000-C", "side": "BUY", "quantity": "1"}
+    ]
+  }
+}
