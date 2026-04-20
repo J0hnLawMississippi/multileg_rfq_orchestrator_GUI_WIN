@@ -42,58 +42,40 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           $env:PYTHONUNBUFFERED = "1"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_QPA_FONTDIR = "$env:WINDIR\\Fonts"
           $stdoutLogPath = Join-Path $PWD "artifacts/demo-screenshot.stdout.log"
           $stderrLogPath = Join-Path $PWD "artifacts/demo-screenshot.stderr.log"
           $combinedLogPath = Join-Path $PWD "artifacts/demo-screenshot.log"
+          $windowShotPath = Join-Path $PWD "artifacts/gui-windows-screenshot.png"
 
-          # Start GUI app in deterministic offline screenshot mode
+          # Start GUI app in deterministic offline screenshot mode and let it
+          # directly capture its own window surface (robust in CI/session-0).
+          $arguments = @(
+            "multileg_rfq_orchestrator_GUI_WIN.py",
+            "--demo-screenshot",
+            "--screenshot-path", $windowShotPath,
+            "--auto-exit-after-ready"
+          )
           $proc = Start-Process python `
-            -ArgumentList "multileg_rfq_orchestrator_GUI_WIN.py --demo-screenshot" `
+            -ArgumentList $arguments `
             -RedirectStandardOutput $stdoutLogPath `
             -RedirectStandardError $stderrLogPath `
             -PassThru
 
-          # Wait until app reports readiness (or timeout fallback)
-          $ready = $false
-          for ($i = 0; $i -lt 40; $i++) {
-            Start-Sleep -Milliseconds 500
-            $stdoutContent = ""
-            $stderrContent = ""
-            if (Test-Path $stdoutLogPath) {
-              $stdoutContent = Get-Content $stdoutLogPath -Raw
-            }
-            if (Test-Path $stderrLogPath) {
-              $stderrContent = Get-Content $stderrLogPath -Raw
-            }
-            if (("$stdoutContent`n$stderrContent") -match "DEMO_SCREENSHOT_READY") {
-              $ready = $true
-              break
-            }
-          }
-          if (-not $ready) {
-            Write-Warning "DEMO_SCREENSHOT_READY not seen; using fallback delay"
-            Start-Sleep -Seconds 8
-          } else {
-            Start-Sleep -Seconds 2
-          }
+          $failed = $false
+          $failMessage = ""
 
-          # Capture full desktop screenshot (taskbar clock + window chrome visible)
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -AssemblyName System.Drawing
-
-          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-          $g = [System.Drawing.Graphics]::FromImage($bmp)
-          $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-          $out = Join-Path $PWD "artifacts/gui-windows-screenshot.png"
-          $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
-          Write-Host "Saved screenshot artifact: $out"
-          $g.Dispose()
-          $bmp.Dispose()
-
-          # Stop app
-          if (!$proc.HasExited) {
+          # Wait for bounded time; fail with logs if the process stalls.
+          $finished = $proc.WaitForExit(45000)
+          if (-not $finished) {
             Stop-Process -Id $proc.Id -Force
+            $failed = $true
+            $failMessage = "Demo screenshot process exceeded timeout (45s)"
+          }
+          if ((-not $failed) -and $proc.ExitCode -ne 0) {
+            $failed = $true
+            $failMessage = "Demo screenshot process failed with exit code $($proc.ExitCode)"
           }
 
           # Persist a combined log artifact for troubleshooting
@@ -104,6 +86,18 @@ jobs:
             Add-Content $combinedLogPath "`n--- STDERR ---"
             Get-Content $stderrLogPath | Add-Content $combinedLogPath
           }
+          if ((-not $failed) -and (-not (Test-Path $windowShotPath))) {
+            $failed = $true
+            $failMessage = "Window screenshot was not produced at $windowShotPath"
+          }
+
+          if ($failed) {
+            if (Test-Path $combinedLogPath) {
+              Write-Host "----- demo-screenshot.log (tail) -----"
+              Get-Content $combinedLogPath -Tail 200 | Write-Host
+            }
+            throw $failMessage
+          }
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
@@ -111,3 +105,11 @@ jobs:
           name: windows-gui-screenshot
           path: artifacts/gui-windows-screenshot.png
           if-no-files-found: error
+
+      - name: Upload screenshot diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-screenshot-diagnostics
+          path: artifacts/demo-screenshot*.log
+          if-no-files-found: warn

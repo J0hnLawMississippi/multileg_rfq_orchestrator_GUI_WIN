@@ -113,6 +113,7 @@ from db_option_pricer_win import (
     MaturityIVData,
     OptionLeg,
     OptionType,
+    StructurePriceResult,
     StructurePricer,
     StrikeIVInterpolator,
     VectorizedDrawdownCalculator,
@@ -421,10 +422,10 @@ class LegRow(QWidget):
 
         # Connections
         self._expiry.currentIndexChanged.connect(self._on_expiry_changed)
-        self._dir.currentIndexChanged.connect(self.changed.emit)
-        self._qty.valueChanged.connect(self.changed.emit)
-        self._strike.currentIndexChanged.connect(self.changed.emit)
-        self._type.currentIndexChanged.connect(self.changed.emit)
+        self._dir.currentIndexChanged.connect(self._emit_changed)
+        self._qty.valueChanged.connect(self._emit_changed)
+        self._strike.currentIndexChanged.connect(self._emit_changed)
+        self._type.currentIndexChanged.connect(self._emit_changed)
 
         # Emit skew_needed when the fields that affect skew colour change
         self._expiry.currentIndexChanged.connect(self._on_skew_trigger)
@@ -454,9 +455,14 @@ class LegRow(QWidget):
         self._expiry.blockSignals(False)
         self._refresh_strikes()
 
-    @Slot()
-    def _on_expiry_changed(self) -> None:
+    @Slot(int)
+    def _on_expiry_changed(self, _index: int = 0) -> None:
         self._refresh_strikes()
+        self.changed.emit()
+
+    @Slot(int)
+    @Slot(float)
+    def _emit_changed(self, *_args: object) -> None:
         self.changed.emit()
 
     def _refresh_strikes(self) -> None:
@@ -525,8 +531,8 @@ class LegRow(QWidget):
         """Return 'C' or 'P'."""
         return self._type.currentText()
 
-    @Slot()
-    def _on_skew_trigger(self) -> None:
+    @Slot(int)
+    def _on_skew_trigger(self, _index: int = 0) -> None:
         """Emit skew_needed whenever expiry, direction, or type changes."""
         if self._expiry.currentText() and self._expiry.currentText() != "Loading…":
             self.skew_needed.emit(self)
@@ -2612,6 +2618,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "(no network dependencies)."
         ),
     )
+    parser.add_argument(
+        "--screenshot-path",
+        type=str,
+        default="",
+        help=(
+            "Optional absolute or relative file path. If provided in "
+            "--demo-screenshot mode, the GUI will save a direct window grab "
+            "to this location."
+        ),
+    )
+    parser.add_argument(
+        "--auto-exit-after-ready",
+        action="store_true",
+        help=(
+            "If set in --demo-screenshot mode, the app exits automatically "
+            "after producing demo state and any requested screenshot."
+        ),
+    )
     return parser
 
 
@@ -2652,7 +2676,11 @@ def _build_mock_price_result(
     )
 
 
-def apply_demo_screenshot_state(window: MainWindow) -> None:
+def apply_demo_screenshot_state(
+    window: MainWindow,
+    screenshot_path: str = "",
+    auto_exit_after_ready: bool = False,
+) -> None:
     """
     Populate GUI with deterministic content and keep it static for screenshot
     capture in CI. No network/API calls are required.
@@ -2714,6 +2742,22 @@ def apply_demo_screenshot_state(window: MainWindow) -> None:
 
     QTimer.singleShot(1200, _ready_log)
 
+    def _capture_window_and_maybe_exit() -> None:
+        if screenshot_path:
+            out_path = os.path.abspath(screenshot_path)
+            out_dir = os.path.dirname(out_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            ok = window.grab().save(out_path, "PNG")
+            if ok:
+                print(f"DEMO_SCREENSHOT_SAVED {out_path}", flush=True)
+            else:
+                print(f"DEMO_SCREENSHOT_SAVE_FAILED {out_path}", flush=True)
+        if auto_exit_after_ready:
+            QApplication.instance().quit()
+
+    QTimer.singleShot(1700, _capture_window_and_maybe_exit)
+
 
 def main() -> None:
     # Windows requires SelectorEventLoop; ProactorEventLoop (the default on
@@ -2723,6 +2767,12 @@ def main() -> None:
 
     args = parse_cli_args()
     load_dotenv()
+
+    if args.demo_screenshot:
+        # CI Windows runners frequently lack GPU acceleration in the current
+        # desktop/session context. Force software OpenGL for deterministic
+        # Matplotlib/Qt rendering during screenshot mode.
+        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
 
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
@@ -2742,7 +2792,11 @@ def main() -> None:
 
     async def _startup_and_run() -> None:
         if args.demo_screenshot:
-            apply_demo_screenshot_state(window)
+            apply_demo_screenshot_state(
+                window,
+                screenshot_path=args.screenshot_path,
+                auto_exit_after_ready=args.auto_exit_after_ready,
+            )
         elif orch is not None:
             await orch.startup()
         # Keep running until the window is closed
