@@ -43,7 +43,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           $env:PYTHONUNBUFFERED = "1"
           $env:QT_QPA_PLATFORM = "windows"
-          $env:QT_QPA_FONTDIR = "C:\Windows\Fonts"
+          $env:QT_QPA_FONTDIR = 'C:\Windows\Fonts'
           $stdoutLogPath = Join-Path $PWD "artifacts/demo-screenshot.stdout.log"
           $stderrLogPath = Join-Path $PWD "artifacts/demo-screenshot.stderr.log"
           $combinedLogPath = Join-Path $PWD "artifacts/demo-screenshot.log"
