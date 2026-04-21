@@ -422,10 +422,10 @@ class LegRow(QWidget):
 
         # Connections
         self._expiry.currentIndexChanged.connect(self._on_expiry_changed)
-        self._dir.currentIndexChanged.connect(self.changed.emit)
-        self._qty.valueChanged.connect(self.changed.emit)
-        self._strike.currentIndexChanged.connect(self.changed.emit)
-        self._type.currentIndexChanged.connect(self.changed.emit)
+        self._dir.currentIndexChanged.connect(self._emit_changed)
+        self._qty.valueChanged.connect(self._emit_changed)
+        self._strike.currentIndexChanged.connect(self._emit_changed)
+        self._type.currentIndexChanged.connect(self._emit_changed)
 
         # Emit skew_needed when the fields that affect skew colour change
         self._expiry.currentIndexChanged.connect(self._on_skew_trigger)
@@ -458,6 +458,9 @@ class LegRow(QWidget):
     @Slot()
     def _on_expiry_changed(self) -> None:
         self._refresh_strikes()
+        self.changed.emit()
+
+    def _emit_changed(self, *_: object) -> None:
         self.changed.emit()
 
     def _refresh_strikes(self) -> None:
@@ -1665,6 +1668,13 @@ class PlotWidget(QWidget):
         self._hover_vline.set_visible(False)
         self._canvas.draw_idle()
 
+    def force_sync_redraw(self) -> None:
+        """Force a synchronous redraw for deterministic screenshot capture."""
+        if self._dirty and self._spot_grid is not None:
+            self._dirty = False
+            self._draw()
+        self._canvas.draw()
+
 
 # =============================================================================
 # SECTION 6 — GUI: RFQ confirmation dialog
@@ -2743,6 +2753,15 @@ def apply_demo_screenshot_state(
             out_dir = os.path.dirname(out_path)
             if out_dir:
                 os.makedirs(out_dir, exist_ok=True)
+
+            app = QApplication.instance()
+            if app is not None:
+                app.processEvents()
+            window._plot_widget.force_sync_redraw()
+            window.repaint()
+            if app is not None:
+                app.processEvents()
+
             ok = window.grab().save(out_path, "PNG")
             if ok:
                 print(f"DEMO_SCREENSHOT_SAVED {out_path}", flush=True)
@@ -2751,7 +2770,7 @@ def apply_demo_screenshot_state(
         if auto_exit_after_ready:
             QApplication.instance().quit()
 
-    QTimer.singleShot(1700, _capture_window_and_maybe_exit)
+    QTimer.singleShot(2200, _capture_window_and_maybe_exit)
 
 
 def main() -> None:
@@ -2770,6 +2789,8 @@ def main() -> None:
         QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
 
     app = QApplication(sys.argv)
+    if args.demo_screenshot and sys.platform == "win32":
+        app.setFont(QFont("Segoe UI", 9))
     _apply_dark_palette(app)
 
     loop = qasync.QEventLoop(app)
