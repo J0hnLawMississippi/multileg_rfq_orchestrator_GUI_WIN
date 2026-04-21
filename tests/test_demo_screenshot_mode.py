@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import multileg_rfq_orchestrator_GUI_WIN as gui
 
 
@@ -53,3 +55,8 @@ def test_build_mock_price_result_shape() -> None:
     assert result.total_usd == 425.0
     assert result.spot == 81234.0
     assert len(result.legs) == 2
+
+
+def test_demo_timestamp_text_format() -> None:
+    stamp = gui._demo_timestamp_text(datetime(2026, 4, 21, 10, 30, 0, tzinfo=timezone.utc))
+    assert stamp == "2026-04-21 10:30:00 UTC"

@@ -2681,6 +2681,35 @@ def _build_mock_price_result(
     )
 
 
+def _demo_timestamp_text(now: Optional[datetime] = None) -> str:
+    """Return a current-date timestamp string for screenshot evidence."""
+    ts = now if now is not None else datetime.now().astimezone()
+    return ts.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+
+
+def _save_window_screenshot_with_chrome(window: MainWindow, out_path: str) -> bool:
+    """Capture framed window (title bar/chrome) when available, then fallback."""
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+
+    window.raise_()
+    window.activateWindow()
+
+    if app is not None:
+        app.processEvents()
+
+    frame = window.frameGeometry()
+    screen = window.screen() or QApplication.primaryScreen()
+    if screen is not None:
+        pix = screen.grabWindow(0, frame.x(), frame.y(), frame.width(), frame.height())
+        if not pix.isNull():
+            if pix.save(out_path, "PNG"):
+                return True
+
+    return window.grab().save(out_path, "PNG")
+
+
 def apply_demo_screenshot_state(
     window: MainWindow,
     screenshot_path: str = "",
@@ -2701,7 +2730,9 @@ def apply_demo_screenshot_state(
     window._param_bar._vol_spin.setValue(-0.10)
     window._param_bar._time_slider.setValue(70)
     window._param_bar._vol_slider.setValue(-100)
-    window._status_bar.showMessage("Demo screenshot mode — deterministic mock data")
+    window._status_bar.showMessage(
+        f"Demo screenshot mode — deterministic mock data — {_demo_timestamp_text()}"
+    )
 
     cur = _build_mock_price_result(
         leg_specs=DEMO_SCREENSHOT_DEFAULT_LEGS,
@@ -2762,7 +2793,7 @@ def apply_demo_screenshot_state(
             if app is not None:
                 app.processEvents()
 
-            ok = window.grab().save(out_path, "PNG")
+            ok = _save_window_screenshot_with_chrome(window, out_path)
             if ok:
                 print(f"DEMO_SCREENSHOT_SAVED {out_path}", flush=True)
             else:
